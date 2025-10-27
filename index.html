@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>EXIF-koll – URL → EXIF</title>
+  <meta name="description" content="Mata in en bild-URL eller ladda upp en bild och se EXIF-metadata. Proxy-stöd för CORS." />
+  <link rel="preconnect" href="https://unpkg.com">
+  <style>
+    :root{
+      --bg:#0b0e14; --panel:#131827; --muted:#8a93a6; --text:#e6e9f2; --accent:#5eead4; --border:#20263a;
+      --error:#ff6b6b; --ok:#8cffae;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji";
+      background: radial-gradient(1200px 600px at 80% -10%, #1b2140 0%, #0b0e14 55%);
+      color:var(--text);
+      display:flex; align-items:center; justify-content:center;
+      padding:24px;
+    }
+    .wrap{
+      width:100%; max-width:980px; background:var(--panel);
+      border:1px solid var(--border); border-radius:20px; padding:20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    h1{font-size: clamp(1.3rem, 3vw, 1.8rem); margin:0 0 12px 0}
+    p.desc{margin:0 0 16px 0; color:var(--muted)}
+    .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+    .row > *{flex:1 1 auto}
+    label{font-size:.9rem; color:var(--muted)}
+    input[type="url"], input[type="file"]{
+      width:100%; padding:12px 14px; border-radius:12px; border:1px solid var(--border);
+      background:#0f1424; color:var(--text); outline:none;
+    }
+    .btn{ cursor:pointer; border:none; padding:12px 16px; border-radius:12px;
+      background:linear-gradient(135deg, #18c8b9, #5eead4); color:#02120f; font-weight:700; }
+    .btn:disabled{opacity:.5; cursor:not-allowed}
+    .toggle{ display:flex; align-items:center; gap:8px; font-size:.9rem; color:var(--muted); user-select:none; }
+    .toggle input{transform:scale(1.2)}
+    .status{margin-top:10px; min-height:20px; font-size:.9rem; color:var(--muted)}
+    .grid{ margin-top:16px; display:grid; grid-template-columns: 1fr 2fr; gap:8px; border-top:1px solid var(--border); padding-top:12px; }
+    .k{color:#a3acc2} .v{color:#f1f5ff}
+    .gps a{color: var(--accent); text-decoration:none}
+    details{ margin-top:14px; border:1px dashed var(--border); border-radius:12px; padding:10px 12px; }
+    details summary{cursor:pointer; color:#a3acc2; font-weight:600}
+    pre{ background:#0f1424; border:1px solid var(--border); border-radius:12px; padding:12px; white-space:pre-wrap; word-break:break-word; max-height:420px; overflow:auto; }
+    .actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px}
+    .ghost{ border:1px solid var(--border); background:#0f1424; color:#fff; border-radius:12px; padding:10px 12px; cursor:pointer; }
+    .preview{ margin-top:16px; display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap; }
+    .preview img{ max-width:220px; max-height:220px; border-radius:12px; border:1px solid var(--border); }
+    .note{font-size:.85rem; color:var(--muted)} .err{color:var(--error)}
+    footer{margin-top:18px; font-size:.8rem; color:var(--muted)}
+    .pill{display:inline-block; padding:2px 8px; border-radius:999px; border:1px solid var(--border); margin-left:6px}
+    .hint{font-size:.8rem; color:#c9d2ea}
+    .drop{ margin-top:10px; padding:14px; border:1px dashed var(--border); border-radius:12px; background:#0f1424; color:#cbd5e1 }
+    .drop.drag{ outline:2px dashed var(--accent); outline-offset:4px }
+    .warn{background:#0f1424; border:1px solid #3b405a; padding:8px 10px; border-radius:10px; margin-top:8px; color:#d9e1ff; font-size:.9rem}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>EXIF-koll <span class="pill">URL → EXIF</span></h1>
+    <p class="desc">Klistra in en <strong>direkt</strong> bild-URL <em>eller</em> ladda upp en bild. Appen läser EXIF och visar kameradata, objektiv, exponering och GPS om det finns.</p>
+
+    <div class="warn">Om URL-läget krånglar i denna canvas kan det bero på begränsningar för nätverksanrop. <strong>Testa filuppladdning</strong> nedan för att verifiera EXIF-läsningen lokalt.</div>
+
+    <div class="row" role="group" aria-label="Mata in URL och hämta EXIF">
+      <div style="flex:1 1 560px">
+        <label for="url">Bild-URL</label>
+        <input id="url" type="url" placeholder="https://exempel.com/bild.jpg" spellcheck="false" autocomplete="off">
+        <div class="hint">Tips: Sociala plattformar tar ofta bort EXIF. Använd originalfiler (t.ex. egen server eller fil-länk).</div>
+      </div>
+      <div style="flex:0 0 auto; display:flex; gap:10px; align-items:flex-end">
+        <button class="btn" id="goBtn">Visa EXIF</button>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <div class="toggle">
+        <input type="checkbox" id="useProxy" checked>
+        <label for="useProxy">Använd proxy (rekommenderas p.g.a. CORS)</label>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="showPreview" checked>
+        <label for="showPreview">Visa bildförhandsvisning</label>
+      </div>
+    </div>
+
+    <div class="drop" id="drop">
+      <strong>…eller ladda upp bild:</strong>
+      <input id="file" type="file" accept="image/*" />
+      <div class="hint">Dra & släpp en bild här eller välj med filväljaren. EXIF läses lokalt i din webbläsare.</div>
+    </div>
+
+    <div id="status" class="status" aria-live="polite"></div>
+
+    <div class="preview" id="preview"></div>
+    <div id="kv" class="grid" hidden></div>
+
+    <details id="rawBox" hidden>
+      <summary>Visa rådata (JSON)</summary>
+      <div class="actions">
+        <button class="ghost" id="copyJson">Kopiera JSON</button>
+        <button class="ghost" id="downloadJson">Ladda ned JSON</button>
+      </div>
+      <pre id="raw"></pre>
+    </details>
+
+    <footer>Byggd med <code>exifr</code>. Den här sidan körs helt i webbläsaren. Endast bild-URL:er hämtas via proxy om du valt det.</footer>
+  </div>
+
+  <script src="https://unpkg.com/exifr/dist/full.umd.js"></script>
+  <script>
+    // Proxy (kan vara blockerad i vissa förhandsvisningar)
+    const API_PROXY = "https://exif-proxy.nyhet24-tokamak.workers.dev";
+
+    const $ = sel => document.querySelector(sel);
+    const urlEl = $('#url');
+    const goBtn = $('#goBtn');
+    const statusEl = $('#status');
+    const gridEl = $('#kv');
+    const rawBox = $('#rawBox');
+    const rawEl = $('#raw');
+    const copyBtn = $('#copyJson');
+    const dlBtn = $('#downloadJson');
+    const prevEl = $('#preview');
+    const useProxyEl = $('#useProxy');
+    const showPreviewEl = $('#showPreview');
+    const fileEl = $('#file');
+    const dropEl = $('#drop');
+
+    function uiBusy(on){
+      goBtn.disabled = !!on;
+      statusEl.textContent = on ? "Bearbetar…" : "";
+    }
+
+    function asFraction(n){ if (!n) return ""; if (n < 1){ const d = Math.round(1/n); return "1/"+d; } return n.toString(); }
+    function fmtExposureTime(v){ if (!v) return ""; if (typeof v === 'number'){ return (v < 1 ? asFraction(v) : v.toFixed(3).replace(/\.0+$/,'')) + ' s'; } return v + ' s'; }
+    function fmtFNumber(v){ if (!v) return ""; const num = Array.isArray(v) ? v[0]/v[1] : v; return 'f/' + (typeof num === 'number' ? num.toFixed(1).replace(/\.0$/,'') : num); }
+    function fmtFocal(v){ if (!v) return ""; const num = Array.isArray(v) ? v[0]/v[1] : v; return (typeof num === 'number' ? Math.round(num) : num) + ' mm'; }
+    function fmtISO(v){ return v ? ('ISO ' + v) : ''; }
+    function fmtDate(dt){ if (!dt) return ""; try{ const d = (dt instanceof Date) ? dt : new Date(dt); return d.toISOString().replace('T',' ').slice(0,19); }catch(_){ return String(dt) } }
+    function buildMapLink(gps){ if (!gps || gps.latitude == null || gps.longitude == null) return ""; const {latitude:lat, longitude:lon} = gps; const osm = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=16/${lat}/${lon}`; return `<span class="gps">GPS: <a href="${osm}" target="_blank" rel="noopener">Visa på karta</a> (${Number(lat).toFixed(6)}, ${Number(lon).toFixed(6)})</span>`; }
+    function kv(label, value){ const k = document.createElement('div'); k.className = 'k'; k.textContent = label; const v = document.createElement('div'); v.className = 'v'; v.innerHTML = value || '<span class="note">—</span>'; gridEl.appendChild(k); gridEl.appendChild(v); }
+
+    async function showPreview(src){
+      prevEl.innerHTML = "";
+      if (!showPreviewEl.checked || !src) return;
+      const img = new Image(); img.alt = 'Förhandsvisning'; img.decoding = 'async'; img.referrerPolicy = 'no-referrer'; img.src = src; prevEl.appendChild(img);
+    }
+
+    async function processArrayBuffer(buf, displaySrc){
+      const opts = { tiff:true, ifd0:true, exif:true, gps:true, xmp:true, icc:true, translateKeys:true };
+      const data = await exifr.parse(buf, opts);
+      if (!data || Object.keys(data).length === 0){
+        let note = 'Inga EXIF-data hittades.';
+        try{
+          const src = (displaySrc || '').toString();
+          if (/cdn\.myportfolio\.com/i.test(src) || /[_-]rw[_-]/i.test(src)){
+            note += ' Denna bild levereras som en optimerad/cachad variant där metadata ofta tas bort (t.ex. Adobe Portfolio/CDN).';
+          }
+        }catch{}
+        statusEl.innerHTML = '<span class="err">' + note + '</span>' +
+          '<div class="hint">Tips: prova originalfil (t.ex. Flickr url_o/url_h, Dropbox ?raw=1, Google Drive direktlänk) eller ladda upp bilden här.</div>';
+        return;
+      }
+      statusEl.textContent = '';
+      const gps = await exifr.gps(buf).catch(()=>null);
+      const fields = {
+        'Kamera': [data.Make, data.Model].filter(Boolean).join(' '),
+        'Objektiv': data.LensModel || data.Lens || '',
+        'Bländare': fmtFNumber(data.FNumber || data.ApertureValue),
+        'Slutartid': fmtExposureTime(data.ExposureTime),
+        'ISO': fmtISO(data.ISO || data.ISOSpeedRatings),
+        'Brännvidd': fmtFocal(data.FocalLength),
+        'Tagen': fmtDate(data.DateTimeOriginal || data.CreateDate || data.ModifyDate),
+        'Exponeringsläge': data.ExposureProgram ? String(data.ExposureProgram) : '',
+        'Tillverkare': data.Make || '',
+        'Programvara': data.Software || '',
+      };
+      gridEl.hidden = false; gridEl.innerHTML = '';
+      for (const [k, v] of Object.entries(fields)) kv(k, v);
+      const mapHtml = buildMapLink(gps || {latitude:data.latitude, longitude:data.longitude});
+      if (mapHtml) kv('Plats', mapHtml);
+      rawEl.textContent = JSON.stringify({exif:data, gps:gps}, null, 2); rawBox.hidden = false;
+      await showPreview(displaySrc);
+    }
+
+    async function runUrl(){
+      const inputUrl = (urlEl.value || '').trim();
+      if (!inputUrl){ urlEl.focus(); return; }
+      gridEl.innerHTML=''; gridEl.hidden=true; rawEl.textContent=''; rawBox.hidden=true; prevEl.innerHTML='';
+      uiBusy(true);
+      try{
+        const proxied = useProxyEl.checked ? (API_PROXY + '?url=' + encodeURIComponent(inputUrl)) : inputUrl;
+        const res = await fetch(proxied, { method:'GET' });
+        if (!res.ok) throw new Error('Misslyckades att hämta bilden ('+res.status+')');
+        const buf = await res.arrayBuffer();
+        await processArrayBuffer(buf, proxied);
+      }catch(err){
+        console.error(err);
+        const msg = (''+ (err?.message || err));
+        const hints = [];
+        hints.push('• Kontrollera att URL:en pekar direkt på en bildfil (jpg/jpeg/tiff/heic/webp).');
+        hints.push('• Testa med proxy av/på (CORS kan stoppa hämtningen).');
+        hints.push('• Vissa servrar tar bort EXIF – prova annan källa eller ladda upp filen.');
+        statusEl.innerHTML = '<span class="err">Fel:</span> ' + msg + '<br><span class="hint">' + hints.join('<br>') + '</span>';
+      } finally { uiBusy(false); }
+    }
+
+    async function runFile(file){
+      if (!file) return;
+      gridEl.innerHTML=''; gridEl.hidden=true; rawEl.textContent=''; rawBox.hidden=true; prevEl.innerHTML='';
+      uiBusy(true);
+      try{
+        const buf = await file.arrayBuffer();
+        const src = URL.createObjectURL(file);
+        await processArrayBuffer(buf, src);
+      }catch(err){
+        console.error(err);
+        statusEl.innerHTML = '<span class="err">Fel vid läsning av fil:</span> ' + (err?.message || err);
+      } finally { uiBusy(false); }
+    }
+
+    // Events
+    goBtn.addEventListener('click', runUrl);
+    urlEl.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') runUrl(); });
+    fileEl.addEventListener('change', (e)=>{ const f = e.target.files?.[0]; if (f) runFile(f); });
+
+    ;['dragenter','dragover'].forEach(ev=> dropEl.addEventListener(ev, e=>{ e.preventDefault(); e.stopPropagation(); dropEl.classList.add('drag'); }));
+    ;['dragleave','dragend','drop'].forEach(ev=> dropEl.addEventListener(ev, e=>{ e.preventDefault(); e.stopPropagation(); dropEl.classList.remove('drag'); }));
+    dropEl.addEventListener('drop', (e)=>{ const f = e.dataTransfer?.files?.[0]; if (f) runFile(f); });
+
+    // Utilities
+    copyBtn.onclick = async () => { try{ await navigator.clipboard.writeText(rawEl.textContent); copyBtn.textContent = 'Kopierat ✓'; setTimeout(()=> copyBtn.textContent = 'Kopiera JSON', 1200); }catch(_){} };
+    dlBtn.onclick = () => { const blob = new Blob([rawEl.textContent], {type:'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'exif.json'; a.click(); URL.revokeObjectURL(a.href); };
+  </script>
+</body>
+</html>
